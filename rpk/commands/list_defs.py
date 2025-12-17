@@ -24,7 +24,7 @@ from rpk.common import Colors, get_skill_definitions
 def add_list_defs_parser(subparsers):
     """Add the 'list-defs' subparser to the argument parser."""
     list_defs_parser = subparsers.add_parser(
-        "list-defs", help="List available skill definitions"
+        "list-definitions", help="List available mission/task/skill definitions"
     )
     return list_defs_parser
 
@@ -45,5 +45,5 @@ def run_list_defs(args):
     for skill in skills:
         skill_id = skill.get('id', 'unknown')
         description = skill.get('description', '').split('\n')[0] # First line of desc
-        print(f" - {Colors.GREEN}{skill_id}{Colors.RESET}: {description}")
+        print(f" - {Colors.GREEN}skill/{skill_id}{Colors.RESET}: {description}")
     print()

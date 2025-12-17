@@ -27,6 +27,7 @@ from pathlib import Path
 import shutil
 
 from rpk.common import (
+    Colors,
     SELF_NAME,
     PKG_PATH,
     TPL_EXT,
@@ -34,6 +35,7 @@ from rpk.common import (
     ROBOTS_NAMES,
     ROBOTS_FEATURES,
     AVAILABLE_ROBOTS,
+    get_definitions,
 )
 
 
@@ -138,31 +140,32 @@ def interactive_create(id=None,
             except (ValueError, IndexError):
                 family = ""
 
-        tpls = TEMPLATES_FAMILIES[family]["src"]
+        if family != "from-definition":
+            tpls = TEMPLATES_FAMILIES[family]["src"]
 
-        if not tpls:
-            print("No templates available for %s. Exiting." % family)
-            sys.exit(1)
+            if not tpls:
+                print("No templates available for %s. Exiting." % family)
+                sys.exit(1)
 
-        while not template:
-            print("\nChoose a template:")
-            for idx, tpl in enumerate(tpls.keys()):
-                print("%s: %s" %
-                      (idx + 1, tpls[tpl]["short_desc"]))
+            while not template:
+                print("\nChoose a template:")
+                for idx, tpl in enumerate(tpls.keys()):
+                    print("%s: %s" %
+                        (idx + 1, tpls[tpl]["short_desc"]))
 
-            try:
-                if len(tpls) == 1:
-                    # if only one template available, make it the default
-                    default_desc = tpls[list(tpls.keys())[0]]['short_desc']
-                    choice = int(input(
-                        f"\nYour choice? (default: 1: {default_desc}) "
-                    ).strip() or 1)
-                else:
-                    choice = int(input("\nYour choice? ").strip())
+                try:
+                    if len(tpls) == 1:
+                        # if only one template available, make it the default
+                        default_desc = tpls[list(tpls.keys())[0]]['short_desc']
+                        choice = int(input(
+                            f"\nYour choice? (default: 1: {default_desc}) "
+                        ).strip() or 1)
+                    else:
+                        choice = int(input("\nYour choice? ").strip())
 
-                template = list(tpls.keys())[choice - 1]
-            except (ValueError, IndexError):
-                template = ""
+                    template = list(tpls.keys())[choice - 1]
+                except (ValueError, IndexError):
+                    template = ""
 
         if not robot and yes:
             robot = AVAILABLE_ROBOTS[0]
@@ -204,7 +207,20 @@ def is_template_enabled(template, features):
 
 def generate_skeleton(data, family, tpl_name, robot, root):
     """Generate a skeleton from a template."""
-    print(f"Generating {family} skeleton in {root.resolve()}...")
+
+    from_definition = False
+
+    if family == "from-definition":
+        type, definition = get_definition(data["args"])
+        language = "python"
+        tpl_name = f"{type}_from_def_{language}"
+        from_definition = True
+
+    if from_definition:
+        print(f"Creating an implementation of {type}/{definition} in {root.resolve()}...")
+    else:
+        print(f"Generating {family} skeleton in {root.resolve()}...")
+
     tpl = TEMPLATES_FAMILIES[family]["src"][tpl_name]
 
     data["dependencies"] = []
@@ -285,12 +301,36 @@ def generate_skeleton(data, family, tpl_name, robot, root):
                 with open(filename, "w") as fh:
                     fh.write(j2_tpl.render(data))
 
-    print("\n\033[32;1mDone!")
-    print("\033[33;1m")
+    print(f"{Colors.GREEN}\nDone!{Colors.RESET}")
+    print(f"{Colors.YELLOW}")
     print(tpl["post_install_help"].format(
         path=root.resolve(), id=data["id"]))
-    print("\033[0m")
+    print(f"{Colors.RESET}")
 
+
+def get_definition(args):
+    """Create a skill from an existing mission/task/skill definition."""
+    skills = get_definitions().get("skills", [])
+    
+    if not args.definition:
+        print(f"{Colors.RED}You must specify a definition to create a skill from.{Colors.RESET}")
+        print("Run 'rpk list-definitions' to list available definitions.")
+        sys.exit(1)
+    
+    definition = args.definition
+    type, id = definition.split("/")
+
+    if type not in ["skill", "mission", "task"]:
+        print(f"{Colors.RED}Definition <{args.from_definition}> not found.{Colors.RESET}")
+        print("Run 'rpk list-definitions' to list available definitions.")
+        sys.exit(1)
+
+    if id not in [skill["id"] for skill in skills if skill["type"] == type]:
+        print(f"{Colors.RED}Definition <{args.from_definition}> not found.{Colors.RESET}")
+        print("Run 'rpk list-definitions' to list available definitions.")
+        sys.exit(1)
+
+    return type, id
 
 def add_create_parser(subparsers):
     """Add the 'create' subparser to the argument parser."""
@@ -306,7 +346,7 @@ def add_create_parser(subparsers):
         nargs="?",
         help="target robot",
     )
-
+    
     family_subparsers = create_parser.add_subparsers(dest="family")
     for family in TEMPLATES_FAMILIES.keys():
         f_parser = family_subparsers.add_parser(
@@ -338,6 +378,14 @@ def add_create_parser(subparsers):
                  "without spaces or hyphens.",
         )
 
+        if family == "from-definition":
+            f_parser.add_argument(
+                "definition",
+                type=str,
+                help="Definition to use. 'rpk list-definitions' to list "
+                     "available definitions.",
+            )
+
     create_parser.add_argument(
         "-p",
         "--path",
@@ -351,10 +399,10 @@ def add_create_parser(subparsers):
 
     return create_parser
 
-
 def run_create(args):
     """Execute the 'create' command."""
-    if not hasattr(args, "template"):
+
+    if not args.family == "from-definition" and not hasattr(args, "template"):
         print("You must select a type of content.\n"
               f"Type '{SELF_NAME} create --help' for details.")
         sys.exit(1)
@@ -377,7 +425,8 @@ def run_create(args):
             "robot_name": ROBOTS_NAMES[robot],
             "features": ROBOTS_FEATURES[robot],
             "author": "TODO",
-            "year": datetime.datetime.now().year}
+            "year": datetime.datetime.now().year,
+            "args": args}
 
     root = Path(args.path)
     root.mkdir(parents=True, exist_ok=True)

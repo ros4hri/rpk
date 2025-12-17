@@ -61,6 +61,11 @@ template_families:
     cmd: "app"
     help: "complete application including a mission controller, a sample task and skill, and sample resources"
 
+  from_definition:
+    name: "from existing definition"
+    cmd: "from-definition"
+    help: "create a mission/task/skill from an existing definition"
+
 # Skill templates
 skill_templates:
   skill_definition:
@@ -274,3 +279,12 @@ application_templates:
       - llm_supervisor_python:
           id: "llm_supervisor"
           name: "LLM-based mission controller"
+
+# Templates to generate missions/tasks/skills from definitions
+from_definition_templates:
+  skill_from_def_python:
+    tpl_paths:
+      - "skills/from_def_python/{{id}}"
+    prog_lang: "python"
+    short_desc: "implementation of a skill definition [python]"
+    post_install_help: "Check README.md in ./{path}/ to learn how to configure and start your skill."

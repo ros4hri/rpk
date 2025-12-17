@@ -71,7 +71,7 @@ def main(args=sys.argv[1:]):
         run_list(args)
     elif args.command == "info":
         run_info(args)
-    elif args.command == "list-defs":
+    elif args.command == "list-definitions":
         run_list_defs(args)
 
 

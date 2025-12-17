@@ -61,6 +61,7 @@ def load_templates():
     task_templates = config['task_templates']
     mission_ctrl_templates = config['mission_ctrl_templates']
     application_templates = config['application_templates']
+    from_definition_templates = config['from_definition_templates']
 
     # Build templates families dict with sources linked
     templates_families = {}
@@ -95,6 +96,13 @@ def load_templates():
         'name': family_config['app']['name'],
         'cmd': family_config['app']['cmd'],
         'help': family_config['app']['help']
+    }
+
+    templates_families['from-definition'] = {
+        'src': from_definition_templates,
+        'name': family_config['from_definition']['name'],
+        'cmd': family_config['from_definition']['cmd'],
+        'help': family_config['from_definition']['help']
     }
 
     return (
@@ -140,6 +148,20 @@ def get_skill_definitions():
         raise Exception(
             f"Could not fetch skill definitions and no valid cache found. Error: {e}")
 
+
+def get_definitions():
+    """
+    Fetch skill/tasks/missions/percepts definitions from the online source or local cache.
+
+    Currently only skills are fetched.
+
+    Returns:
+        dict: The skill definitions JSON object.
+    
+    Raises:
+        Exception: If fetching fails and no cache is available.
+    """
+    return get_skill_definitions()
 
 # Load templates at module initialization
 ROBOTS_NAMES, ROBOTS_FEATURES, TEMPLATES_FAMILIES = load_templates()
