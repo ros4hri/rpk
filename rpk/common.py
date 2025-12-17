@@ -20,6 +20,10 @@
 import sys
 from pathlib import Path
 import yaml
+import json
+import urllib.request
+import urllib.error
+import os
 
 import rpk
 
@@ -36,6 +40,10 @@ TEMPLATES_YAML_PATH = Path(rpk.__file__).parent / "templates.yaml"
 
 # Template file extension
 TPL_EXT = "j2"
+
+# Skills definition URL and cache path
+SKILLS_DEF_URL = "https://ros4hri.github.io/skills.json"
+SKILLS_CACHE_PATH = Path.home() / ".cache" / "rpk" / "skills.json"
 
 
 def load_templates():
@@ -94,6 +102,43 @@ def load_templates():
         robots_features,
         templates_families,
     )
+
+
+def get_skill_definitions():
+    """
+    Fetch skill definitions from the online source or local cache.
+
+    Returns:
+        dict: The skill definitions JSON object.
+    
+    Raises:
+        Exception: If fetching fails and no cache is available.
+    """
+    try:
+        with urllib.request.urlopen(SKILLS_DEF_URL, timeout=5) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            print(f"Fetched skills definitions from {SKILLS_DEF_URL}")
+            
+            # Update cache
+            SKILLS_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(SKILLS_CACHE_PATH, 'w') as f:
+                json.dump(data, f)
+            
+            return data
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as e:
+        # If fetch fails, try cache
+        if SKILLS_CACHE_PATH.exists():
+            try:
+                with open(SKILLS_CACHE_PATH, 'r') as f:
+                    skills = json.load(f)
+                    print(f"{Colors.YELLOW}Unable to fetch skill definitions online, using cached skill definitions from {SKILLS_CACHE_PATH}.{Colors.RESET}")
+                    return skills
+            except json.JSONDecodeError:
+                pass # Cache corrupted
+        
+        # If we are here, we couldn't get the data
+        raise Exception(
+            f"Could not fetch skill definitions and no valid cache found. Error: {e}")
 
 
 # Load templates at module initialization

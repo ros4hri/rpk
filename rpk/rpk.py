@@ -35,6 +35,7 @@ from rpk.common import (  # noqa: F401
 from rpk.commands.create import add_create_parser, run_create
 from rpk.commands.list import add_list_parser, run_list
 from rpk.commands.info import add_info_parser, run_info
+from rpk.commands.list_defs import add_list_defs_parser, run_list_defs
 
 
 def main(args=sys.argv[1:]):
@@ -53,6 +54,7 @@ def main(args=sys.argv[1:]):
     add_create_parser(subparsers)
     add_list_parser(subparsers)
     add_info_parser(subparsers)
+    add_list_defs_parser(subparsers)
 
     args = parser.parse_args(args)
 
@@ -69,6 +71,8 @@ def main(args=sys.argv[1:]):
         run_list(args)
     elif args.command == "info":
         run_info(args)
+    elif args.command == "list-defs":
+        run_list_defs(args)
 
 
 if __name__ == "__main__":
