@@ -14,12 +14,17 @@ ROS 2 API
 #### Subscribed
 
 - `/skill/set_expression` (`interaction_skills/msg/SetExpression.msg`): the expression to display
-- `/expressive_face/speech` (`std_msgs/msg/String`) words, as being uttered.
+- `/{{id}}/speech` (`std_msgs/msg/String`): words, as being uttered.
   This can be used to generate vismes (ie, lips animations)
+- `/{{id}}/closed_captions` (`hri_actions_msgs/msg/ClosedCaption`): closed
+caption to be displayed on the face. Might contain both what the robot hears
+(ASR) and what the robot says (TTS). Unlike `/{{id}}/speech` that publishes the
+robot's TTS text word-by-word and is used for lip sync,
+`/{{id}}/closed_captions` contains full sentences, better suited for captioning.
 
 #### Published
 
-- `/expressive_face/image_raw/compressed`: the generated face (optional, only when `headless=true`)
+- `/{{id}}/image_raw`: the generated face (optional, only when parameter `headless=true`)
 
 ### Actions
 

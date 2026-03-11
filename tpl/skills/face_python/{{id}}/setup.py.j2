@@ -1,18 +1,19 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from setuptools import find_packages, setup
 from glob import glob
 
-NAME = "{{ id }}"
+from setuptools import find_packages, setup
+
+NAME = '{{ id }}'
 
 setup(
     name=NAME,
-    version="0.1.0",
-    license="Apache-2.0",
-    description="{{ name }}",
-    author="todo",
-    author_email="todo@todo.todo",
+    version='0.1.0',
+    license='Apache-2.0',
+    description='{{ name }}',
+    author='todo',
+    author_email='todo@todo.todo',
     packages=find_packages(exclude=['test']),
     data_files=[
         ('share/' + NAME, ['package.xml']),

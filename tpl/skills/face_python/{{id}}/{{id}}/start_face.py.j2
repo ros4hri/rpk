@@ -21,11 +21,12 @@
 #
 ####################################################################
 
-import rclpy
+import threading
 
-from rclpy.executors import MultiThreadedExecutor
-
+import cv2
 import {{ id }}.face_impl
+import rclpy
+from rclpy.executors import MultiThreadedExecutor
 
 
 def main():
@@ -35,11 +36,20 @@ def main():
     skill_executor = MultiThreadedExecutor()
     skill_executor.add_node(skill)
 
+    executor_thread = threading.Thread(target=skill_executor.spin, daemon=True)
+    executor_thread.start()
+
     try:
-        skill_executor.spin()
+        while rclpy.ok():
+            if skill._state_machine.current_state[1] == 'active':
+                skill.run_ui()
+            cv2.waitKey(100)
     except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
-        print("Goodbye!")
+        print('Goodbye!')
+    finally:
         skill.destroy_node()
+        rclpy.try_shutdown()
+        executor_thread.join()
 
 
 if __name__ == '__main__':

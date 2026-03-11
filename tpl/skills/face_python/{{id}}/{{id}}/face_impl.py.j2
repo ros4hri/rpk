@@ -12,18 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from rclpy.lifecycle import Node
-from rclpy.lifecycle import State
-from rclpy.lifecycle import TransitionCallbackReturn
-from rcl_interfaces.msg import ParameterDescriptor
-
-from rclpy.action import ActionServer, GoalResponse
-
+import cv2
+from cv_bridge import CvBridge
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from interaction_skills.action import LookAt
 from interaction_skills.msg import SetExpression
+import numpy as np
+from rcl_interfaces.msg import ParameterDescriptor
+from rclpy.action import ActionServer, GoalResponse
+from rclpy.lifecycle import Node, State, TransitionCallbackReturn
+from sensor_msgs.msg import Image
 from std_msgs.msg import String
-
-from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 
 
 class FaceImpl(Node):
@@ -53,31 +52,47 @@ class FaceImpl(Node):
             'parameter_name', 'parameter_value',
             ParameterDescriptor(description='A parameter for the skill')
         )
+        self.declare_parameter(
+            'headless', False,
+            ParameterDescriptor(description='Run without opening an OpenCV window')
+        )
 
-        self.get_logger().info("Initialising...")
-        self._timer = None
+        self.get_logger().info('Initialising...')
         self._diag_pub = None
         self._diag_timer = None
+        self._image_pub = None
+        self._bridge = CvBridge()
 
-        self._last_msg = ""  # for diagnostics
+        self._last_msg = ''  # for diagnostics
         self._set_expression_sub = None
         self._speech_sub = None
 
-        self.get_logger().info('Face skill {{id}} started, but not yet configured.')
+        # Face state
+        self._expression = 'neutral'
+        self._gaze_x_offset = 0
+        self._gaze_y_offset = 0
+        self._max_eye_offset = 20  # Max pixels eyes can move
+
+        # Face dimensions
+        self._width = 600
+        self._height = 400
+
+        self.get_logger().info('Face {{id}} started, but not yet configured.')
 
     def on_set_expression(self, msg: SetExpression):
         expression = msg.expression.expression
-        self.get_logger().info(f"Setting expression to: {expression}")
-        self._last_msg = f"Expression: {expression}"
+        self.get_logger().info(f'Setting expression to: {expression}')
+        self._last_msg = f'Expression: {expression}'
+        self._expression = expression
 
     def on_speech(self, msg: String):
-        self.get_logger().info(f"Uttering: {msg.data}")
-        self._last_msg = f"Speech: {msg.data}"
+        self.get_logger().info(f'Uttering: {msg.data}')
+        self._last_msg = f'Speech: {msg.data}'
 
     def on_request_goal(self, goal_handle):
         """Accept incoming goal if appropriate."""
-        if self._state_machine.current_state[1] != "active":
-            self.get_logger().error("Skill is not active yet, rejecting goal")
+        if self._state_machine.current_state[1] != 'active':
+            self.get_logger().error('Skill is not active yet, rejecting goal')
             return GoalResponse.REJECT
 
         return GoalResponse.ACCEPT
@@ -85,8 +100,23 @@ class FaceImpl(Node):
     def on_request_exec(self, goal_handle):
         """Process incoming goal."""
         gaze = goal_handle.request.target
-        self.get_logger().info(f"Looking at ({gaze.point.x}, {gaze.point.y}, {gaze.point.z}) in frame {gaze.header.frame_id} (policy: {goal_handle.request.policy})")
-        self._last_msg = f"Gaze: ({gaze.point.x}, {gaze.point.y}, {gaze.point.z})"
+        self.get_logger().info(
+            f'Looking at ({gaze.point.x}, {gaze.point.y}, {gaze.point.z}) '
+            f'in frame {gaze.header.frame_id} (policy: {goal_handle.request.policy})'
+        )
+        self._last_msg = f'Gaze: ({gaze.point.x}, {gaze.point.y}, {gaze.point.z})'
+
+        # Assuming x is left/right and y is up/down on the face, and Z is distance.
+        # This is a simple heuristic mapping.
+        z = max(gaze.point.z, 0.1)  # Prevent div by 0
+        self._gaze_x_offset = int(-gaze.point.y / z * 50)
+        self._gaze_y_offset = int(-gaze.point.x / z * 50)
+
+        # Clamp Movement
+        self._gaze_x_offset = max(-self._max_eye_offset,
+                                  min(self._max_eye_offset, self._gaze_x_offset))
+        self._gaze_y_offset = max(-self._max_eye_offset,
+                                  min(self._max_eye_offset, self._gaze_y_offset))
 
         goal_handle.succeed()
         return LookAt.Result()
@@ -97,49 +127,53 @@ class FaceImpl(Node):
     #
     def on_configure(self, state: State) -> TransitionCallbackReturn:
 
-        self.look_at_server = ActionServer(self,
-                                         LookAt,
-                                         "/skill/look_at",
-                                         goal_callback=self.on_request_goal,
-                                         execute_callback=self.on_request_exec)
+        self.look_at_server = ActionServer(
+            self,
+            LookAt,
+            '/skill/look_at',
+            goal_callback=self.on_request_goal,
+            execute_callback=self.on_request_exec)
 
-        self._set_expression_sub = self.create_subscription(SetExpression, "/skill/set_expression", self.on_set_expression, 1)
-        self._speech_sub = self.create_subscription(String, "/{{id}}/speech", self.on_speech, 1)
+        self._set_expression_sub = self.create_subscription(
+            SetExpression, '/skill/set_expression', self.on_set_expression, 1)
+        self._speech_sub = self.create_subscription(String, '/{{id}}/speech', self.on_speech, 1)
+
+        self._image_pub = self.create_publisher(Image, '/{{id}}/image_raw', 1)
 
         # configure and start diagnostics publishing
         self._diag_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 1)
         self._diag_timer = self.create_timer(1., self.publish_diagnostics)
 
-        self.get_logger().info("Face skill {{id}} is configured, but not yet active")
+        self.get_logger().info('Face {{id}} is configured, but not yet active')
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
-        # Define a timer that fires every second to call the run function
-        timer_period = 1  # in sec
-        self._timer = self.create_timer(timer_period, self.run)
-
-        self.get_logger().info("Face skill {{id}} is active and running")
+        if self.get_parameter('headless').value:
+            self.get_logger().info('Running in headless mode, no OpenCV window will be opened.')
+        self.get_logger().info('Face {{id}} is active and running')
         return super().on_activate(state)
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
-        """Stop the timer to stop calling the `run` function (main task of your application)."""
-        self.get_logger().info("Stopping skill...")
-        self.destroy_timer(self._timer)
+        """Stop the active face tasks."""
+        self.get_logger().info('Stopping face {{id}}...')
 
-        self.get_logger().info("Face skill {{id}} is stopped (inactive)")
+        self.get_logger().info('Face {{id}} is stopped (inactive)')
         return super().on_deactivate(state)
 
     def on_shutdown(self, state: State) -> TransitionCallbackReturn:
-        self.get_logger().info('Shutting down {{id}} skill.')
+        self.get_logger().info('Shutting down face {{id}}.')
 
         self.look_at_server.destroy()
         self.destroy_subscription(self._set_expression_sub)
         self.destroy_subscription(self._speech_sub)
 
+        if self._image_pub:
+            self.destroy_publisher(self._image_pub)
+
         self.destroy_timer(self._diag_timer)
         self.destroy_publisher(self._diag_pub)
 
-        self.get_logger().info("Face skill {{id}} finalized.")
+        self.get_logger().info('Face {{id}} finalized.')
         return TransitionCallbackReturn.SUCCESS
 
     #################################
@@ -149,13 +183,13 @@ class FaceImpl(Node):
         arr = DiagnosticArray()
         msg = DiagnosticStatus(
             level=DiagnosticStatus.OK,
-            name="/skill/{{id}}",
-            message="skill {{id}} is running",
+            name='{{id}}',
+            message='face generator {{id}} is running',
             values=[
-                KeyValue(key="Module name", value="{{ id }}"),
-                KeyValue(key="Current lifecycle state",
+                KeyValue(key='Module name', value='{{ id }}'),
+                KeyValue(key='Current lifecycle state',
                          value=self._state_machine.current_state[1]),
-                KeyValue(key="Last message", value=self._last_msg),
+                KeyValue(key='Last message', value=self._last_msg),
             ],
         )
 
@@ -163,7 +197,61 @@ class FaceImpl(Node):
         arr.status = [msg]
         self._diag_pub.publish(arr)
 
-    def run(self) -> None:
-        """Background task of the skill."""
-        pass
+    def run_ui(self) -> None:
+        """Background task of the node. Renders the interactive face."""
+        self.get_logger().debug(
+            f'Running face {{id}} main loop, expression: {self._expression}, '
+            f'gaze offset: ({self._gaze_x_offset}, {self._gaze_y_offset})'
+        )
+        img = np.zeros((self._height, self._width, 3), dtype=np.uint8)
+
+        color_white = (255, 255, 255)
+        color_black = (0, 0, 0)
+
+        # Draw here your face
+        # (in the template, we just do simple shapes)
+
+        # Left Eye configuration
+        left_eye_center = (200, 150)
+        right_eye_center = (400, 150)
+        eye_radius = 40
+        pupil_radius = 15
+
+        # Draw Eye whites
+        cv2.circle(img, left_eye_center, eye_radius, color_white, -1)
+        cv2.circle(img, right_eye_center, eye_radius, color_white, -1)
+
+        # Draw Pupils (with displacement from gaze)
+        l_pupil_pos = (left_eye_center[0] + self._gaze_x_offset,
+                       left_eye_center[1] + self._gaze_y_offset)
+        r_pupil_pos = (right_eye_center[0] + self._gaze_x_offset,
+                       right_eye_center[1] + self._gaze_y_offset)
+
+        cv2.circle(img, l_pupil_pos, pupil_radius, color_black, -1)
+        cv2.circle(img, r_pupil_pos, pupil_radius, color_black, -1)
+
+        # Draw Mouth
+        mouth_center = (300, 270)
+        if self._expression == 'happy':
+            # Smiling arc
+            cv2.ellipse(img, mouth_center, (80, 40), 0, 20, 160, color_white, 8)
+        elif self._expression == 'sad':
+            # Sad arc (inverted)
+            cv2.ellipse(
+                img, (mouth_center[0], mouth_center[1] + 30),
+                (80, 40), 180, 20, 160, color_white, 8
+            )
+        elif self._expression == 'angry':
+            # Angry flat and angled
+            cv2.line(img, (220, 290), (380, 250), color_white, 8)
+        else:  # "neutral"
+            cv2.line(img, (240, 270), (360, 270), color_white, 8)
+
+        # Publish the image or display it in a window
+        if self.get_parameter('headless').value:
+            img_msg = self._bridge.cv2_to_imgmsg(img, encoding='bgr8')
+            self._image_pub.publish(img_msg)
+        else:
+            cv2.imshow('{{id}}', img)
+            cv2.waitKey(1)
 
