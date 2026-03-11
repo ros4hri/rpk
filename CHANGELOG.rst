@@ -2,6 +2,15 @@
 Changelog for package pal_app
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* [tpl] face_python: supports closed captions
+* [tpl] face_python: now generate and publish a face
+* [tpl] new python template for interactive robot faces
+  The generate node is basic, only reporting on the command like where
+  to look/what expression is requested.
+* Contributors: Séverin Lemaignan
+
 5.6.0 (2025-12-17)
 ------------------
 * fix tests + add test for 'rpk list' and 'rpk info'
