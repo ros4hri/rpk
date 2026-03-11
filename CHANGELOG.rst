@@ -2,8 +2,8 @@
 Changelog for package pal_app
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+5.7.0 (2026-03-11)
+------------------
 * [tpl] face_python: supports closed captions
 * [tpl] face_python: now generate and publish a face
 * [tpl] new python template for interactive robot faces
