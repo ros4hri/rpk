@@ -15,6 +15,7 @@
 import cv2
 from cv_bridge import CvBridge
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
+from hri_actions_msgs.msg import ClosedCaption
 from interaction_skills.action import LookAt
 from interaction_skills.msg import SetExpression
 import numpy as np
@@ -66,12 +67,15 @@ class FaceImpl(Node):
         self._last_msg = ''  # for diagnostics
         self._set_expression_sub = None
         self._speech_sub = None
+        self._closed_captions_sub = None
 
         # Face state
         self._expression = 'neutral'
         self._gaze_x_offset = 0
         self._gaze_y_offset = 0
         self._max_eye_offset = 20  # Max pixels eyes can move
+        self._closed_caption = ''
+        self._caption_time = None
 
         # Face dimensions
         self._width = 600
@@ -88,6 +92,12 @@ class FaceImpl(Node):
     def on_speech(self, msg: String):
         self.get_logger().info(f'Uttering: {msg.data}')
         self._last_msg = f'Speech: {msg.data}'
+
+    def on_closed_captions(self, msg: ClosedCaption):
+        self.get_logger().info(f'Caption: {msg.text}')
+        self._last_msg = f'Caption: {msg.text}'
+        self._closed_caption = msg.text
+        self._caption_time = self.get_clock().now()
 
     def on_request_goal(self, goal_handle):
         """Accept incoming goal if appropriate."""
@@ -137,6 +147,8 @@ class FaceImpl(Node):
         self._set_expression_sub = self.create_subscription(
             SetExpression, '/skill/set_expression', self.on_set_expression, 1)
         self._speech_sub = self.create_subscription(String, '/{{id}}/speech', self.on_speech, 1)
+        self._closed_captions_sub = self.create_subscription(
+            ClosedCaption, '/{{id}}/closed_captions', self.on_closed_captions, 1)
 
         self._image_pub = self.create_publisher(Image, '/{{id}}/image_raw', 1)
 
@@ -166,6 +178,7 @@ class FaceImpl(Node):
         self.look_at_server.destroy()
         self.destroy_subscription(self._set_expression_sub)
         self.destroy_subscription(self._speech_sub)
+        self.destroy_subscription(self._closed_captions_sub)
 
         if self._image_pub:
             self.destroy_publisher(self._image_pub)
@@ -246,6 +259,26 @@ class FaceImpl(Node):
             cv2.line(img, (220, 290), (380, 250), color_white, 8)
         else:  # "neutral"
             cv2.line(img, (240, 270), (360, 270), color_white, 8)
+
+        # Render closed captions.
+        # A proper implementation might want to distinguish between the *user* speaking
+        # and the *robot* speaking by using eg different colors or positions
+        # (cf hri_actions_msgs/msgs/ClosedCaption.msg).
+        if self._closed_caption and self._caption_time:
+            time_since_caption = (self.get_clock().now() - self._caption_time).nanoseconds / 1e9
+            if time_since_caption > 2.0:
+                self._closed_caption = ''
+            else:
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.7
+                thickness = 2
+                text_size = cv2.getTextSize(self._closed_caption, font, font_scale, thickness)[0]
+                text_x = (self._width - text_size[0]) // 2  # Center horizontally
+                text_y = self._height - 20
+                cv2.putText(
+                    img, self._closed_caption, (text_x, text_y),
+                    font, font_scale, color_white, thickness
+                )
 
         # Publish the image or display it in a window
         if self.get_parameter('headless').value:
