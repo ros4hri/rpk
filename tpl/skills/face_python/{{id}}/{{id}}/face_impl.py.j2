@@ -1,0 +1,169 @@
+# Copyright (c) {{ year }} {{ author }}. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from rclpy.lifecycle import Node
+from rclpy.lifecycle import State
+from rclpy.lifecycle import TransitionCallbackReturn
+from rcl_interfaces.msg import ParameterDescriptor
+
+from rclpy.action import ActionServer, GoalResponse
+
+from interaction_skills.action import LookAt
+from interaction_skills.msg import SetExpression
+from std_msgs.msg import String
+
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
+
+
+class FaceImpl(Node):
+    """
+    Implementation of {{id}}.
+
+    This is the main class for the skill. It is a ROS2 node that uses the
+    lifecycle feature of ROS2 to manage its states.
+
+    It implements a simple face interface, accepting gaze (`look_at`),
+    expressions (`set_expression`), and speech text processing.
+    """
+
+    def __init__(self) -> None:
+        """Construct the node."""
+        super().__init__('skill_{{ id }}')
+
+        # Declare ROS parameters
+        #
+        # You can add here any parameters that you want to be configurable
+        # from the command line or from a launch file.
+        #
+        # You should also add the same parameters to config/00-defaults.yml
+        #
+        # If you do not need any parameters, you can remove this block
+        self.declare_parameter(
+            'parameter_name', 'parameter_value',
+            ParameterDescriptor(description='A parameter for the skill')
+        )
+
+        self.get_logger().info("Initialising...")
+        self._timer = None
+        self._diag_pub = None
+        self._diag_timer = None
+
+        self._last_msg = ""  # for diagnostics
+        self._set_expression_sub = None
+        self._speech_sub = None
+
+        self.get_logger().info('Face skill {{id}} started, but not yet configured.')
+
+    def on_set_expression(self, msg: SetExpression):
+        expression = msg.expression.expression
+        self.get_logger().info(f"Setting expression to: {expression}")
+        self._last_msg = f"Expression: {expression}"
+
+    def on_speech(self, msg: String):
+        self.get_logger().info(f"Uttering: {msg.data}")
+        self._last_msg = f"Speech: {msg.data}"
+
+    def on_request_goal(self, goal_handle):
+        """Accept incoming goal if appropriate."""
+        if self._state_machine.current_state[1] != "active":
+            self.get_logger().error("Skill is not active yet, rejecting goal")
+            return GoalResponse.REJECT
+
+        return GoalResponse.ACCEPT
+
+    def on_request_exec(self, goal_handle):
+        """Process incoming goal."""
+        gaze = goal_handle.request.target
+        self.get_logger().info(f"Looking at ({gaze.point.x}, {gaze.point.y}, {gaze.point.z}) in frame {gaze.header.frame_id} (policy: {goal_handle.request.policy})")
+        self._last_msg = f"Gaze: ({gaze.point.x}, {gaze.point.y}, {gaze.point.z})"
+
+        goal_handle.succeed()
+        return LookAt.Result()
+
+    #################################
+    #
+    # Lifecycle transitions callbacks
+    #
+    def on_configure(self, state: State) -> TransitionCallbackReturn:
+
+        self.look_at_server = ActionServer(self,
+                                         LookAt,
+                                         "/skill/look_at",
+                                         goal_callback=self.on_request_goal,
+                                         execute_callback=self.on_request_exec)
+
+        self._set_expression_sub = self.create_subscription(SetExpression, "/skill/set_expression", self.on_set_expression, 1)
+        self._speech_sub = self.create_subscription(String, "/{{id}}/speech", self.on_speech, 1)
+
+        # configure and start diagnostics publishing
+        self._diag_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 1)
+        self._diag_timer = self.create_timer(1., self.publish_diagnostics)
+
+        self.get_logger().info("Face skill {{id}} is configured, but not yet active")
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_activate(self, state: State) -> TransitionCallbackReturn:
+        # Define a timer that fires every second to call the run function
+        timer_period = 1  # in sec
+        self._timer = self.create_timer(timer_period, self.run)
+
+        self.get_logger().info("Face skill {{id}} is active and running")
+        return super().on_activate(state)
+
+    def on_deactivate(self, state: State) -> TransitionCallbackReturn:
+        """Stop the timer to stop calling the `run` function (main task of your application)."""
+        self.get_logger().info("Stopping skill...")
+        self.destroy_timer(self._timer)
+
+        self.get_logger().info("Face skill {{id}} is stopped (inactive)")
+        return super().on_deactivate(state)
+
+    def on_shutdown(self, state: State) -> TransitionCallbackReturn:
+        self.get_logger().info('Shutting down {{id}} skill.')
+
+        self.look_at_server.destroy()
+        self.destroy_subscription(self._set_expression_sub)
+        self.destroy_subscription(self._speech_sub)
+
+        self.destroy_timer(self._diag_timer)
+        self.destroy_publisher(self._diag_pub)
+
+        self.get_logger().info("Face skill {{id}} finalized.")
+        return TransitionCallbackReturn.SUCCESS
+
+    #################################
+
+    def publish_diagnostics(self):
+
+        arr = DiagnosticArray()
+        msg = DiagnosticStatus(
+            level=DiagnosticStatus.OK,
+            name="/skill/{{id}}",
+            message="skill {{id}} is running",
+            values=[
+                KeyValue(key="Module name", value="{{ id }}"),
+                KeyValue(key="Current lifecycle state",
+                         value=self._state_machine.current_state[1]),
+                KeyValue(key="Last message", value=self._last_msg),
+            ],
+        )
+
+        arr.header.stamp = self.get_clock().now().to_msg()
+        arr.status = [msg]
+        self._diag_pub.publish(arr)
+
+    def run(self) -> None:
+        """Background task of the skill."""
+        pass
+

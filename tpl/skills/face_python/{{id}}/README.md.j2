@@ -1,0 +1,82 @@
+{{ name }}
+====================
+
+Overview
+--------
+
+``{{ id }}`` is a procedural face generator for robots.
+
+ROS 2 API
+---------
+
+### Topics
+
+#### Subscribed
+
+- `/skill/set_expression` (`interaction_skills/msg/SetExpression.msg`): the expression to display
+- `/expressive_face/speech` (`std_msgs/msg/String`) words, as being uttered.
+  This can be used to generate vismes (ie, lips animations)
+
+#### Published
+
+- `/expressive_face/image_raw/compressed`: the generated face (optional, only when `headless=true`)
+
+### Actions
+
+#### Server
+
+- `/skill/look_at` (`interaction_skills/action/LookAt`): where to look
+  at and 'how' (gaze policy). The point should be expressed in the /sellion_link frame (it will be
+  transformed if necessary), ie, the centre point between the two eyes.
+
+Testing
+-------
+
+```
+ros2 launch {{id}} {{id}}.launch.py
+```
+
+Display the face with any ROS image viewer, for instance:
+
+```
+rqt -s image_view --args /expressive_face/image_raw/compressed
+```
+
+Then, to change the expression:
+
+```
+ros2 topic pub -1 /skill/set_expression interaction_skills/msg/SetExpression "expression: {expression: tired}"
+ros2 topic pub -1 /skill/set_expression interaction_skills/msg/SetExpression "expression: {expression: neutral}"
+```
+
+To change the gaze direction:
+
+```
+ros2 topic pub -1 /robot_face/look_at geometry_msgs/msg/PointStamped "header:
+     stamp:
+       sec: 0
+       nanosec: 0
+     frame_id: 'sellion_link'
+   point:
+     x: 1.0
+     y: 1.0
+     z: 0.0"
+```
+
+Notes on performance
+--------------------
+
+
+To profile the code:
+
+- recompile with:
+
+```
+colcon build --packages-select expressive_faces --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
+```
+
+- add the following prefix to the node in the launch file:
+
+```
+prefix=['valgrind --tool=callgrind'])
+```

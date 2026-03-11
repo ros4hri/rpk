@@ -123,6 +123,13 @@ skill_templates:
           id: "db"
           name: "Skill definition for a custom database connector"
 
+  face_python:
+    tpl_paths:
+      - "skills/face_python/{{id}}"
+    prog_lang: "python"
+    short_desc: "creates a Python template for an interactive robot face"
+    post_install_help: "Check README.md in {path}/{id}/ and edit {id}/{id}/face_impl.py to implement your face logic."
+
   locate_cpp:
     tpl_paths:
       - "skills/locate_cpp/{{id}}"
